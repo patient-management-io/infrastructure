@@ -1611,6 +1611,376 @@
     "PatientServiceDBHealthCheck",
     "PatientServiceTaskTaskRole4FB5B4E2"
    ]
+  },
+  "ApiGatewayTaskDefinitionTaskRole78FC06E2": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   }
+  },
+  "ApiGatewayTaskDefinitionBB9A2505": {
+   "Type": "AWS::ECS::TaskDefinition",
+   "Properties": {
+    "ContainerDefinitions": [
+     {
+      "Environment": [
+       {
+        "Name": "SPRING_PROFILES_ACTIVE",
+        "Value": "prod"
+       },
+       {
+        "Name": "AUTH_SERVICE_URL",
+        "Value": "http://host.docker.internal:4005"
+       }
+      ],
+      "Essential": true,
+      "Image": "api-gateway",
+      "LogConfiguration": {
+       "LogDriver": "awslogs",
+       "Options": {
+        "awslogs-group": {
+         "Ref": "ApiGatewayLogGroupA9770429"
+        },
+        "awslogs-stream-prefix": "api-gateway",
+        "awslogs-region": {
+         "Ref": "AWS::Region"
+        }
+       }
+      },
+      "Name": "ApiGatewayContainer",
+      "PortMappings": [
+       {
+        "ContainerPort": 4004,
+        "HostPort": 4004,
+        "Protocol": "tcp"
+       }
+      ]
+     }
+    ],
+    "Cpu": "256",
+    "ExecutionRoleArn": {
+     "Fn::GetAtt": [
+      "ApiGatewayTaskDefinitionExecutionRoleE78CB745",
+      "Arn"
+     ]
+    },
+    "Family": "localstackApiGatewayTaskDefinition2CA71C36",
+    "Memory": "512",
+    "NetworkMode": "awsvpc",
+    "RequiresCompatibilities": [
+     "FARGATE"
+    ],
+    "TaskRoleArn": {
+     "Fn::GetAtt": [
+      "ApiGatewayTaskDefinitionTaskRole78FC06E2",
+      "Arn"
+     ]
+    }
+   }
+  },
+  "ApiGatewayTaskDefinitionExecutionRoleE78CB745": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   }
+  },
+  "ApiGatewayTaskDefinitionExecutionRoleDefaultPolicy3FBBB1F9": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "ApiGatewayLogGroupA9770429",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "ApiGatewayTaskDefinitionExecutionRoleDefaultPolicy3FBBB1F9",
+    "Roles": [
+     {
+      "Ref": "ApiGatewayTaskDefinitionExecutionRoleE78CB745"
+     }
+    ]
+   }
+  },
+  "ApiGatewayLogGroupA9770429": {
+   "Type": "AWS::Logs::LogGroup",
+   "Properties": {
+    "LogGroupName": "/ecs/api-gateway",
+    "RetentionInDays": 1
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete"
+  },
+  "PatientManagementApiGatewayServiceLB94D488D7": {
+   "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+   "Properties": {
+    "LoadBalancerAttributes": [
+     {
+      "Key": "deletion_protection.enabled",
+      "Value": "false"
+     }
+    ],
+    "Scheme": "internet-facing",
+    "SecurityGroups": [
+     {
+      "Fn::GetAtt": [
+       "PatientManagementApiGatewayServiceLBSecurityGroupF3F7CAB1",
+       "GroupId"
+      ]
+     }
+    ],
+    "Subnets": [
+     {
+      "Ref": "PatientManagementVPCPublicSubnet1SubnetC8305E9D"
+     },
+     {
+      "Ref": "PatientManagementVPCPublicSubnet2Subnet07CEC558"
+     }
+    ],
+    "Type": "application"
+   },
+   "DependsOn": [
+    "PatientManagementVPCPublicSubnet1DefaultRoute1E407ABB",
+    "PatientManagementVPCPublicSubnet1RouteTableAssociationA39A24A4",
+    "PatientManagementVPCPublicSubnet2DefaultRoute2DC1F916",
+    "PatientManagementVPCPublicSubnet2RouteTableAssociationCAC8BA09"
+   ]
+  },
+  "PatientManagementApiGatewayServiceLBSecurityGroupF3F7CAB1": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "Automatically created Security Group for ELB localstackPatientManagementApiGatewayServiceLBC144DFB3",
+    "SecurityGroupIngress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow from anyone on port 80",
+      "FromPort": 80,
+      "IpProtocol": "tcp",
+      "ToPort": 80
+     }
+    ],
+    "VpcId": {
+     "Ref": "PatientManagementVPC522067E7"
+    }
+   }
+  },
+  "PatientManagementApiGatewayServiceLBSecurityGrouptolocalstackPatientManagementApiGatewayServiceSecurityGroup19E07133400452331155": {
+   "Type": "AWS::EC2::SecurityGroupEgress",
+   "Properties": {
+    "Description": "Load balancer to target",
+    "DestinationSecurityGroupId": {
+     "Fn::GetAtt": [
+      "PatientManagementApiGatewayServiceSecurityGroupFB7E2F1C",
+      "GroupId"
+     ]
+    },
+    "FromPort": 4004,
+    "GroupId": {
+     "Fn::GetAtt": [
+      "PatientManagementApiGatewayServiceLBSecurityGroupF3F7CAB1",
+      "GroupId"
+     ]
+    },
+    "IpProtocol": "tcp",
+    "ToPort": 4004
+   }
+  },
+  "PatientManagementApiGatewayServiceLBPublicListenerBE448EF1": {
+   "Type": "AWS::ElasticLoadBalancingV2::Listener",
+   "Properties": {
+    "DefaultActions": [
+     {
+      "TargetGroupArn": {
+       "Ref": "PatientManagementApiGatewayServiceLBPublicListenerECSGroup9855E85C"
+      },
+      "Type": "forward"
+     }
+    ],
+    "LoadBalancerArn": {
+     "Ref": "PatientManagementApiGatewayServiceLB94D488D7"
+    },
+    "Port": 80,
+    "Protocol": "HTTP"
+   }
+  },
+  "PatientManagementApiGatewayServiceLBPublicListenerECSGroup9855E85C": {
+   "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+   "Properties": {
+    "Port": 80,
+    "Protocol": "HTTP",
+    "TargetGroupAttributes": [
+     {
+      "Key": "stickiness.enabled",
+      "Value": "false"
+     }
+    ],
+    "TargetType": "ip",
+    "VpcId": {
+     "Ref": "PatientManagementVPC522067E7"
+    }
+   }
+  },
+  "PatientManagementApiGatewayService72A8070A": {
+   "Type": "AWS::ECS::Service",
+   "Properties": {
+    "Cluster": {
+     "Ref": "PatientManagementCluster98E10F8D"
+    },
+    "DeploymentConfiguration": {
+     "Alarms": {
+      "AlarmNames": [],
+      "Enable": false,
+      "Rollback": false
+     },
+     "MaximumPercent": 200,
+     "MinimumHealthyPercent": 50
+    },
+    "DesiredCount": 1,
+    "EnableECSManagedTags": false,
+    "HealthCheckGracePeriodSeconds": 60,
+    "LaunchType": "FARGATE",
+    "LoadBalancers": [
+     {
+      "ContainerName": "ApiGatewayContainer",
+      "ContainerPort": 4004,
+      "TargetGroupArn": {
+       "Ref": "PatientManagementApiGatewayServiceLBPublicListenerECSGroup9855E85C"
+      }
+     }
+    ],
+    "NetworkConfiguration": {
+     "AwsvpcConfiguration": {
+      "AssignPublicIp": "DISABLED",
+      "SecurityGroups": [
+       {
+        "Fn::GetAtt": [
+         "PatientManagementApiGatewayServiceSecurityGroupFB7E2F1C",
+         "GroupId"
+        ]
+       }
+      ],
+      "Subnets": [
+       {
+        "Ref": "PatientManagementVPCPrivateSubnet1Subnet05B10E79"
+       },
+       {
+        "Ref": "PatientManagementVPCPrivateSubnet2Subnet8A2E409C"
+       }
+      ]
+     }
+    },
+    "ServiceName": "api-gateway",
+    "TaskDefinition": {
+     "Ref": "ApiGatewayTaskDefinitionBB9A2505"
+    }
+   },
+   "DependsOn": [
+    "ApiGatewayTaskDefinitionTaskRole78FC06E2",
+    "PatientManagementApiGatewayServiceLBPublicListenerECSGroup9855E85C",
+    "PatientManagementApiGatewayServiceLBPublicListenerBE448EF1"
+   ]
+  },
+  "PatientManagementApiGatewayServiceSecurityGroupFB7E2F1C": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "localstack/PatientManagementApiGatewayService/Service/SecurityGroup",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow all outbound traffic by default",
+      "IpProtocol": "-1"
+     }
+    ],
+    "VpcId": {
+     "Ref": "PatientManagementVPC522067E7"
+    }
+   },
+   "DependsOn": [
+    "ApiGatewayTaskDefinitionTaskRole78FC06E2"
+   ]
+  },
+  "PatientManagementApiGatewayServiceSecurityGroupfromlocalstackPatientManagementApiGatewayServiceLBSecurityGroupD06A8A8E4004177CAE58": {
+   "Type": "AWS::EC2::SecurityGroupIngress",
+   "Properties": {
+    "Description": "Load balancer to target",
+    "FromPort": 4004,
+    "GroupId": {
+     "Fn::GetAtt": [
+      "PatientManagementApiGatewayServiceSecurityGroupFB7E2F1C",
+      "GroupId"
+     ]
+    },
+    "IpProtocol": "tcp",
+    "SourceSecurityGroupId": {
+     "Fn::GetAtt": [
+      "PatientManagementApiGatewayServiceLBSecurityGroupF3F7CAB1",
+      "GroupId"
+     ]
+    },
+    "ToPort": 4004
+   },
+   "DependsOn": [
+    "ApiGatewayTaskDefinitionTaskRole78FC06E2"
+   ]
+  }
+ },
+ "Outputs": {
+  "PatientManagementApiGatewayServiceLoadBalancerDNS3DB79746": {
+   "Value": {
+    "Fn::GetAtt": [
+     "PatientManagementApiGatewayServiceLB94D488D7",
+     "DNSName"
+    ]
+   }
+  },
+  "PatientManagementApiGatewayServiceServiceURLA89E08D3": {
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "http://",
+      {
+       "Fn::GetAtt": [
+        "PatientManagementApiGatewayServiceLB94D488D7",
+        "DNSName"
+       ]
+      }
+     ]
+    ]
+   }
   }
  }
 }
