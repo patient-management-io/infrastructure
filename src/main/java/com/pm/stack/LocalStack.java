@@ -1,7 +1,19 @@
 package com.pm.stack;
 
-import software.amazon.awscdk.*;
-import software.amazon.awscdk.services.ec2.*;
+import software.amazon.awscdk.App;
+import software.amazon.awscdk.AppProps;
+import software.amazon.awscdk.BootstraplessSynthesizer;
+import software.amazon.awscdk.RemovalPolicy;
+import software.amazon.awscdk.Stack;
+import software.amazon.awscdk.StackProps;
+import software.amazon.awscdk.Token;
+import software.amazon.awscdk.services.ec2.ISubnet;
+import software.amazon.awscdk.services.ec2.InstanceClass;
+import software.amazon.awscdk.services.ec2.InstanceSize;
+import software.amazon.awscdk.services.ec2.InstanceType;
+import software.amazon.awscdk.services.ec2.Vpc;
+import software.amazon.awscdk.services.ecs.CloudMapNamespaceOptions;
+import software.amazon.awscdk.services.ecs.Cluster;
 import software.amazon.awscdk.services.msk.CfnCluster;
 import software.amazon.awscdk.services.rds.Credentials;
 import software.amazon.awscdk.services.rds.DatabaseInstance;
@@ -15,6 +27,7 @@ import java.util.stream.Collectors;
 public class LocalStack extends Stack {
 
     private final Vpc vpc;
+    private final Cluster ecsCluster;
 
     public LocalStack(final App scope, final String id, final StackProps props) {
         super(scope, id, props);
@@ -27,6 +40,8 @@ public class LocalStack extends Stack {
         CfnHealthCheck patientServiceDBHealthCheck = createDbHealthCheck(patientServiceDB, "PatientServiceDBHealthCheck");
 
         CfnCluster mskCluster = createMskCluster();
+
+        this.ecsCluster = createEcsCluster();
     }
 
     private Vpc createVpc() {
@@ -82,6 +97,16 @@ public class LocalStack extends Stack {
                         .brokerAzDistribution("DEFAULT")
                         .build()
                 )
+                .build();
+    }
+
+    private Cluster createEcsCluster() {
+        return Cluster.Builder
+                .create(this, "PatientManagementCluster")
+                .vpc(vpc)
+                .defaultCloudMapNamespace(CloudMapNamespaceOptions.builder()
+                        .name("patient-management.local")
+                        .build())
                 .build();
     }
 
