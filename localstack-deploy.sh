@@ -5,6 +5,10 @@ set -e
 # Disable AWS CLI pager to prevent commands from opening in a separate viewer
 export AWS_PAGER=""
 
+echo "🧹 Cleaning up old stack..."
+aws --endpoint-url=http://localhost:4566 cloudformation delete-stack \
+    --stack-name patient-management \
+
 echo "🚀 Starting fresh LocalStack deployment..."
 
 # Deploy the CloudFormation stack
@@ -17,11 +21,11 @@ aws --endpoint-url=http://localhost:4566 cloudformation deploy \
     --region us-east-1 \
     --no-paginate
 
-echo "✅ Checking deployment status..."
-aws --endpoint-url=http://localhost:4566 cloudformation describe-stacks \
-    --stack-name patient-management \
-    --region us-east-1 \
-    --no-paginate
+#echo "✅ Checking deployment status..."
+#aws --endpoint-url=http://localhost:4566 cloudformation describe-stacks \
+#    --stack-name patient-management \
+#    --region us-east-1 \
+#    --no-paginate
 
 echo "🔗 Getting load balancer DNS name..."
 LB_DNS=$(aws --endpoint-url=http://localhost:4566 elbv2 describe-load-balancers \
