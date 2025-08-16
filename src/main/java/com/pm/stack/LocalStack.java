@@ -6,8 +6,20 @@ import software.amazon.awscdk.services.ec2.InstanceClass;
 import software.amazon.awscdk.services.ec2.InstanceSize;
 import software.amazon.awscdk.services.ec2.InstanceType;
 import software.amazon.awscdk.services.ec2.Vpc;
-import software.amazon.awscdk.services.ecs.*;
+import software.amazon.awscdk.services.ecs.AwsLogDriverProps;
+import software.amazon.awscdk.services.ecs.CloudMapNamespaceOptions;
+import software.amazon.awscdk.services.ecs.CloudMapOptions;
+import software.amazon.awscdk.services.ecs.Cluster;
+import software.amazon.awscdk.services.ecs.ContainerDefinitionOptions;
+import software.amazon.awscdk.services.ecs.ContainerImage;
+import software.amazon.awscdk.services.ecs.FargateService;
+import software.amazon.awscdk.services.ecs.FargateTaskDefinition;
+import software.amazon.awscdk.services.ecs.LogDriver;
+import software.amazon.awscdk.services.ecs.PortMapping;
+import software.amazon.awscdk.services.ecs.Protocol;
 import software.amazon.awscdk.services.ecs.patterns.ApplicationLoadBalancedFargateService;
+import software.amazon.awscdk.services.elasticache.CfnCacheCluster;
+import software.amazon.awscdk.services.elasticache.CfnSubnetGroup;
 import software.amazon.awscdk.services.logs.LogGroup;
 import software.amazon.awscdk.services.logs.RetentionDays;
 import software.amazon.awscdk.services.msk.CfnCluster;
@@ -17,6 +29,7 @@ import software.amazon.awscdk.services.rds.DatabaseInstanceEngine;
 import software.amazon.awscdk.services.rds.PostgresEngineVersion;
 import software.amazon.awscdk.services.rds.PostgresInstanceEngineProps;
 import software.amazon.awscdk.services.route53.CfnHealthCheck;
+import software.amazon.awscdk.services.servicediscovery.DnsRecordType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +41,7 @@ public class LocalStack extends Stack {
 
     private final Vpc vpc;
     private final Cluster ecsCluster;
+    private final CfnCacheCluster elastiCacheCluster;
 
     public LocalStack(final App scope, final String id, final StackProps props) {
         super(scope, id, props);
@@ -40,8 +54,8 @@ public class LocalStack extends Stack {
         CfnHealthCheck patientServiceDBHealthCheck = createDbHealthCheck(patientServiceDB, "PatientServiceDBHealthCheck");
 
         CfnCluster mskCluster = createMskCluster();
-
         this.ecsCluster = createEcsCluster();
+        this.elastiCacheCluster = createRedisCluster();
 
         FargateService authService = createFargateService(
                 "AuthService",
@@ -77,7 +91,7 @@ public class LocalStack extends Stack {
                 "patient-service",
                 List.of(4000),
                 patientServiceDB,
-                Map.of("BILLING_SERVICE_ADDRESS", "host.docker.internal",
+                Map.of("BILLING_SERVICE_ADDRESS", "billing-service.patient-management.local",
                         "BILLING_SERVICE_GRPC_PORT", "9001")
         );
 
@@ -85,8 +99,20 @@ public class LocalStack extends Stack {
         patientService.getNode().addDependency(patientServiceDB);
         patientService.getNode().addDependency(billingService);
         patientService.getNode().addDependency(mskCluster);
+        patientService.getNode().addDependency(elastiCacheCluster);
 
-        createApiGatewayService();
+        ApplicationLoadBalancedFargateService apiGateway = createApiGatewayService();
+        apiGateway.getNode().addDependency(elastiCacheCluster);
+
+        FargateService prometheusService = createFargateService(
+                "PrometheusService",
+                "prometheus-prod",
+                List.of(9090),
+                null,
+                null
+        );
+
+        createGrafanaService();
     }
 
     private Vpc createVpc() {
@@ -145,12 +171,15 @@ public class LocalStack extends Stack {
                 .build();
     }
 
+    // Ex: billing-service.patient-management.local
     private Cluster createEcsCluster() {
         return Cluster.Builder
                 .create(this, "PatientManagementCluster")
                 .vpc(vpc)
                 .defaultCloudMapNamespace(CloudMapNamespaceOptions.builder()
                         .name("patient-management.local")
+                        .type(software.amazon.awscdk.services.servicediscovery.NamespaceType.DNS_PRIVATE)
+                        .vpc(vpc)
                         .build())
                 .build();
     }
@@ -190,6 +219,10 @@ public class LocalStack extends Stack {
 
         Map<String, String> envVars = new HashMap<>();
         envVars.put("SPRING_KAFKA_BOOTSTRAP_SERVERS", "localhost.localstack.cloud:4510, localhost.localstack.cloud:4511, localhost.localstack.cloud:4512");
+        envVars.put("SPRING_CACHE_TYPE", "redis");
+        envVars.put("SPRING_DATA_REDIS_HOST", elastiCacheCluster.getAttrRedisEndpointAddress());
+        envVars.put("SPRING_DATA_REDIS_PORT", elastiCacheCluster.getAttrRedisEndpointPort());
+
 
         if (additionalEnvVars != null){
             envVars.putAll(additionalEnvVars);
@@ -217,11 +250,18 @@ public class LocalStack extends Stack {
                 .cluster(ecsCluster)
                 .taskDefinition(taskDefinition)
                 .assignPublicIp(false)
+                .cloudMapOptions(CloudMapOptions.builder()
+                        .name(imageName)
+                        .dnsRecordType(DnsRecordType.A)
+                        .dnsTtl(Duration.seconds(60))
+                        .containerPort(ports.get(0))
+                        .build())
                 .serviceName(imageName)
+                .desiredCount(1)
                 .build();
     }
 
-    private void createApiGatewayService() {
+    private ApplicationLoadBalancedFargateService createApiGatewayService() {
         FargateTaskDefinition taskDefinition = FargateTaskDefinition.Builder
                 .create(this, "ApiGatewayTaskDefinition")
                 .cpu(256)
@@ -232,7 +272,9 @@ public class LocalStack extends Stack {
                 .image(ContainerImage.fromRegistry("api-gateway"))
                 .environment(Map.of(
                         "SPRING_PROFILES_ACTIVE", "prod",
-                        "AUTH_SERVICE_URL", "http://host.docker.internal:4005"
+                        "AUTH_SERVICE_URL", "http://auth-service.patient-management.local:4005",
+                        "REDIS_HOST", elastiCacheCluster.getAttrRedisEndpointAddress(),
+                        "REDIS_PORT", elastiCacheCluster.getAttrRedisEndpointPort()
                 ))
                 .portMappings(Stream.of(4004)
                         .map(port -> PortMapping.builder()
@@ -255,14 +297,62 @@ public class LocalStack extends Stack {
 
         taskDefinition.addContainer("ApiGatewayContainer", containerOptions);
 
-        ApplicationLoadBalancedFargateService.Builder
+        return ApplicationLoadBalancedFargateService.Builder
                         .create(this, "PatientManagementApiGatewayService")
                         .cluster(ecsCluster)
                         .serviceName("api-gateway")
+                        .publicLoadBalancer(true)
+                        .cloudMapOptions(CloudMapOptions.builder()
+                                .name("api-gateway")
+                                .dnsRecordType(DnsRecordType.A)
+                                .build())
                         .taskDefinition(taskDefinition)
                         .desiredCount(1)
                         .healthCheckGracePeriod(Duration.seconds(60))
                         .build();
+    }
+
+    private CfnCacheCluster createRedisCluster() {
+        CfnSubnetGroup redisSubnetGroup = CfnSubnetGroup.Builder
+                .create(this, "RedisSubnetGroup")
+                .description("Redis ElastiCache Subnet Group")
+                .subnetIds(vpc.getPrivateSubnets().stream()
+                        .map(ISubnet::getSubnetId)
+                        .collect(Collectors.toList()))
+                .build();
+
+        return CfnCacheCluster.Builder
+                .create(this, "RedisCluster")
+                .cacheNodeType("cache.t2.micro")
+                .engine("redis")
+                .numCacheNodes(1)
+                .cacheSubnetGroupName(redisSubnetGroup.getCacheSubnetGroupName())
+                .vpcSecurityGroupIds(List.of(vpc.getVpcDefaultSecurityGroup()))
+                .build();
+    }
+
+    private ApplicationLoadBalancedFargateService createGrafanaService() {
+        FargateTaskDefinition taskDefinition = FargateTaskDefinition.Builder
+                .create(this, "GrafanaService")
+                .cpu(256)
+                .memoryLimitMiB(512)
+                .build();
+
+        taskDefinition.addContainer("GrafanaContainer", ContainerDefinitionOptions.builder()
+                        .image(ContainerImage.fromRegistry("grafana/grafana"))
+                        .portMappings(List.of(PortMapping.builder()
+                                        .containerPort(3000)
+                                .build()))
+                        .build()
+        );
+
+        return ApplicationLoadBalancedFargateService.Builder
+                .create(this, "GrafanaUIService")
+                .taskDefinition(taskDefinition)
+                .publicLoadBalancer(true)
+                .listenerPort(3000)
+                .desiredCount(1)
+                .build();
     }
 
     public static void main(final String[] args) {
